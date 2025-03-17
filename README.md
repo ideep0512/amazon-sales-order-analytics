@@ -25,3 +25,9 @@ using python 3.10.16
 downgraded to snowflake-snowpark-python==1.9.0
 pip install snowflake-connector-python[pandas]
 
+pyenv install 3.12.2  # Install Python 3.12
+pyenv local 3.12.2    # Set it as the local version
+python -m venv my_env  # Create a virtual environment
+source my_env/bin/activate  # Activate it
+pip install snowflake-snowpark-python  # Install Snowpark
+

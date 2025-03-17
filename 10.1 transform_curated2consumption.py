@@ -10,6 +10,7 @@ from snowflake.snowpark import Session, DataFrame, CaseExpr
 from snowflake.snowpark.functions import col,lit,row_number, rank, split,cast, when, expr,min, max
 from snowflake.snowpark.types import StructType, StringType, StructField, StringType,LongType,DecimalType,DateType,TimestampType
 from snowflake.snowpark import Window
+from snowflake.snowpark.types import StructType, StructField, DateType, IntegerType, StringType
 
 # initiate logging at info level
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%I:%M:%S')
@@ -36,7 +37,7 @@ def create_region_dim(all_sales_df,session)-> None:
     region_dim_df = all_sales_df.groupBy(col("Country"),col("Region")).count()
     region_dim_df.show(2)
     region_dim_df = region_dim_df.with_column("isActive",lit('Y'))
-    region_dim_df = region_dim_df.selectExpr("sales_dwh.source.region_dim_seq.nextval as region_id_pk","Country", "Region", "isActive") 
+    region_dim_df = region_dim_df.selectExpr("sales_dwh.consumption.region_dim_seq.nextval as region_id_pk","Country", "Region", "isActive") 
     #region_dim_df.write.save_as_table('sales_dwh.consumption.region_dim',mode="append")   
 
     region_dim_df.show(5)
@@ -100,15 +101,21 @@ def create_promocode_dim(all_sales_df,session)-> None:
     promo_code_dim_df = promo_code_dim_df.groupBy(col("promotion_code"),col("country"),col("region")).count()
     promo_code_dim_df = promo_code_dim_df.with_column("isActive",lit('Y'))
 
-    #promo_code_dim_df.show(10)
+    print("****************************")
+    promo_code_dim_df.show(10)
 
     
     #fetch existing product dim records.
-    existing_promo_code_dim_df = session.sql("select promotion_code, country, region from sales_dwh.consumption.promo_code_dim")
+    # existing_promo_code_dim_df = session.sql("select promotion_code, country, region from sales_dwh.consumption.promo_code_dim")
+    existing_promo_code_dim_df = session.sql('SELECT "PROMOTION_CODE", "COUNTRY", "REGION" FROM sales_dwh.consumption.promo_code_dim')
 
+    # existing_promo_code_dim_df.show(10)
+    print("Schema of existing_promo_code_dim_df:")
+    existing_promo_code_dim_df.print_schema()
+    
 
     promo_code_dim_df = promo_code_dim_df.join(existing_promo_code_dim_df,["promotion_code", "country", "region"],join_type='leftanti')
-
+    print("****************************>>>>>>>>>>>>>>")
 
     promo_code_dim_df = promo_code_dim_df.selectExpr("sales_dwh.consumption.promo_code_dim_seq.nextval as promo_code_id_pk","promotion_code", "country","region","isActive") 
 
@@ -171,58 +178,74 @@ def create_date_dim(all_sales_df, session) -> None:
     start_date = all_sales_df.select(min("order_dt").alias("min_order_dt")).collect()[0].as_dict()['MIN_ORDER_DT']
     end_date = all_sales_df.select(max("order_dt").alias("max_order_dt")).collect()[0].as_dict()['MAX_ORDER_DT']
     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-    #print(date_range)
-    date_dim = pd.DataFrame()
-    date_dim['order_dt'] = date_range.date
-    date_dim['Year'] = date_range.year
-    # Calculate day counter
-    start_day_of_year = pd.to_datetime(start_date).dayofyear
-    date_dim['DayCounter'] = date_range.dayofyear - start_day_of_year + 1
 
-    date_dim['Month'] = date_range.month
-    date_dim['Quarter'] = date_range.quarter
-    date_dim['Day'] = date_range.day
-    date_dim['DayOfWeek'] = date_range.dayofweek
-    date_dim['DayName'] = date_range.strftime('%A')
-    date_dim['DayOfMonth'] = date_range.day
-    date_dim['Weekday'] = date_dim['DayOfWeek'].map({0: 'Weekday', 1: 'Weekday', 2: 'Weekday', 3: 'Weekday', 4: 'Weekday', 5: 'Weekend', 6: 'Weekend'})
-    
-    # date_dim['order_dt'] = date_dim['order_dt'].astype(str)
-    # date_dim = pd.DataFrame(date_dim)
-    print("***************************************")
-    print(type(date_dim))
-    print(date_dim.head())
-    print("***************************************")
-    date_dim_df = session.create_dataframe(date_dim)
-   
+    date_dim = pd.DataFrame({
+        'order_dt': date_range.date,
+        'Year': date_range.year,
+        'DayCounter': date_range.dayofyear - pd.to_datetime(start_date).dayofyear + 1,
+        'Month': date_range.month,
+        'Quarter': date_range.quarter,
+        'Day': date_range.day,
+        'DayOfWeek': date_range.dayofweek,
+        'DayName': date_range.strftime('%A'),
+        'DayOfMonth': date_range.day,
+        'Weekday': date_range.dayofweek.map({0: 'Weekday', 1: 'Weekday', 2: 'Weekday', 3: 'Weekday', 4: 'Weekday', 5: 'Weekend', 6: 'Weekend'})
+    })
 
-    existing_date_dim_df = session.sql("select order_dt from sales_dwh.consumption.date_dim ") 
-    date_dim_df = date_dim_df.join(existing_date_dim_df,existing_date_dim_df['order_dt']==date_dim_df['"order_dt"'],join_type='leftanti')
+    # Convert Pandas DataFrame to list of tuples
+    date_dim_records = list(date_dim.itertuples(index=False, name=None))
 
-    date_dim_df = date_dim_df.selectExpr(' \
-                                   sales_dwh.consumption.date_dim_seq.nextval, \
-                                   "order_dt" as order_dt, \
-                                   "DayCounter" as day_counter,\
-                                   "Year" as order_year, \
-                                   "Month" as order_month, \
-                                   "Quarter" as order_quarter, \
-                                   "Day" as order_day, \
-                                   "DayOfWeek" as order_dayofweek, \
-                                   "DayName" as order_dayname, \
-                                   "DayOfMonth" as order_dayofmonth, \
-                                   "Weekday" as order_weekday\
-                                   ')
+    # Define Snowflake schema
+    date_dim_schema = StructType([
+        StructField("order_dt", DateType()),
+        StructField("Year", IntegerType()),
+        StructField("DayCounter", IntegerType()),
+        StructField("Month", IntegerType()),
+        StructField("Quarter", IntegerType()),
+        StructField("Day", IntegerType()),
+        StructField("DayOfWeek", IntegerType()),
+        StructField("DayName", StringType()),
+        StructField("DayOfMonth", IntegerType()),
+        StructField("Weekday", StringType()),
+    ])
 
-    intsert_cnt = int(date_dim_df.count())
-    if intsert_cnt>0:
-        date_dim_df.write.save_as_table("sales_dwh.consumption.date_dim",mode="append")
-        print("save operation ran...")
+    # Create Snowpark DataFrame with schema
+    date_dim_df = session.create_dataframe(date_dim_records, schema=date_dim_schema)
+
+    # Rest of the function remains the same
+    existing_date_dim_df = session.sql("SELECT order_dt FROM sales_dwh.consumption.date_dim")
+    date_dim_df = date_dim_df.join(existing_date_dim_df, existing_date_dim_df['order_dt'] == date_dim_df['order_dt'], join_type='leftanti')
+
+    date_dim_df = date_dim_df.selectExpr(
+        "sales_dwh.consumption.date_dim_seq.nextval AS date_id_pk",
+        "order_dt",
+        # "DayCounter AS day_counter",
+        "Year AS order_year",
+        "Month AS order_month",
+        "Quarter AS order_quarter",
+        "Day AS order_day",
+        "DayOfWeek AS order_dayofweek",
+        "DayName AS order_dayname",
+        "DayOfMonth AS order_dayofmonth",
+        "Weekday AS order_weekday"
+    )
+
+    insert_cnt = int(date_dim_df.count())
+    print(date_dim_df.schema)
+    print(date_dim_df.show(5)) 
+    if insert_cnt > 0:
+        date_dim_df.write.save_as_table("sales_dwh.consumption.date_dim", mode="append")
+        print("Save operation ran...")
     else:
         print("No insert ...Opps...")
+
+
 
 def main():
     #get the session object and get dataframe
     session = get_snowpark_session()
+    context_df = session.sql("select current_role(), current_database(), current_schema(), current_warehouse()")
+    context_df.show(2)
 
     in_sales_df = session.sql("select * from sales_dwh.curated.in_sales_order")
     us_sales_df = session.sql("select * from sales_dwh.curated.us_sales_order")

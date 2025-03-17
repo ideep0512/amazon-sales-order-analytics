@@ -1,4 +1,6 @@
 -- region dimension
+show databases;
+use sales_dwh;
 use schema consumption;
 create or replace sequence region_dim_seq start = 1 increment = 1;
 create or replace transient table region_dim(
@@ -27,6 +29,8 @@ create or replace sequence promo_code_dim_seq start = 1 increment = 1;
 create or replace transient table promo_code_dim(
     promo_code_id_pk number primary key,
     promo_code text,
+    country text,
+    region text,
     isActive text(1)
 );
 
@@ -56,14 +60,24 @@ create or replace transient table payment_dim(
 );
 
 -- date dimension
+select current_role();
+use role sysadmin;
+use role accountadmin;
+GRANT OWNERSHIP ON TABLE SALES_DWH.CONSUMPTION.DATE_DIM 
+TO ROLE SYSADMIN REVOKE CURRENT GRANTS;
+SHOW GRANTS ON TABLE SALES_DWH.CONSUMPTION.DATE_DIM;
+GRANT OWNERSHIP ON SEQUENCE SALES_DWH.CONSUMPTION.DATE_DIM_SEQ 
+TO ROLE SYSADMIN REVOKE CURRENT GRANTS;
+
+
 use schema consumption;
 create or replace sequence date_dim_seq start = 1 increment = 1;
 create or replace transient table date_dim(
     date_id_pk int primary key,
     order_dt date,
     order_year int,
-    oder_month int,
-    order_quater int,
+    ORDER_MONTH int,
+    ORDER_QUARTER int,
     order_day int,
     order_dayofweek int,
     order_dayname text,
@@ -107,3 +121,19 @@ alter table sales_fact add
 
 alter table sales_fact add
     constraint fk_sales_promot FOREIGN KEY (PROMO_CODE_ID_FK) REFERENCES promo_code_dim (PROMO_CODE_ID_PK) NOT ENFORCED;
+
+DESC TABLE sales_dwh.consumption.date_dim;
+DESC TABLE sales_dwh.curated.in_sales_order;
+DESC TABLE sales_dwh.consumption.promo_code_dim;
+
+
+
+
+SELECT * FROM SALES_DWH.INFORMATION_SCHEMA.TABLES 
+WHERE TABLE_SCHEMA = 'CONSUMPTION' 
+AND TABLE_NAME = 'DATE_DIM';
+
+SHOW SEQUENCES IN SCHEMA SALES_DWH.SOURCE;
+
+
+
